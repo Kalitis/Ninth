@@ -103,8 +103,59 @@ Syntax:
 
 Ninth v0.5.1 is powerful enough to define and train a neural network from scratch in ~20 lines of code.
 
-See `examples/classifier.9th` for a full binary classification example (Linear -> ReLU -> Linear -> Sigmoid) that solves the $x+y>0$ problem.
 
+```forth
+[PROGRAM_START]
+
+// --- INIT ---
+// W1: [784, 128]
+[784 128] [RANDN] 0.01 [MUL] [VAR] "W1" [STORE]
+[1 128] [ZEROS] [VAR] "b1" [STORE]
+
+// W2: [128, 10]
+[128 10] [RANDN] 0.01 [MUL] [VAR] "W2" [STORE]
+[1 10] [ZEROS] [VAR] "b2" [STORE]
+
+// Learning Rate
+0.05 "lr" [STORE]
+
+// --- FORWARD PASS ---
+[DEF] "model"
+   "W1" [LOAD] [MATMUL] "b1" [LOAD] [ADD] [RELU]
+   "W2" [LOAD] [MATMUL] "b2" [LOAD] [ADD]
+   // Возвращаем логиты (без Softmax, т.к. CrossEntropy сам его сделает внутри)
+[RET]
+
+// --- TRAIN STEP ---
+[DEF] "train_batch"
+   // 1. Забираем данные из очереди (Python положил их туда)
+   [INPUT] "X" [STORE]
+   [INPUT] "Y" [STORE]
+
+   // 2. Предсказание
+   "X" [LOAD] [CALL] "model" // -> Logits
+
+   // 3. Считаем Loss
+   [DUP] // Копируем логиты (одни для лосса, другие для проверки точности)
+   "Y" [LOAD] [CROSS_ENTROPY]
+   "loss" [STORE]
+
+   // 4. Backprop
+   "loss" [LOAD] [BACKWARD]
+
+   // 5. Update (SGD)
+   "W1" [LOAD] "W1" [GRAD] "lr" [LOAD] [MUL] [SUB] [VAR] "W1" [STORE]
+   "b1" [LOAD] "b1" [GRAD] "lr" [LOAD] [MUL] [SUB] [VAR] "b1" [STORE]
+   "W2" [LOAD] "W2" [GRAD] "lr" [LOAD] [MUL] [SUB] [VAR] "W2" [STORE]
+   "b2" [LOAD] "b2" [GRAD] "lr" [LOAD] [MUL] [SUB] [VAR] "b2" [STORE]
+   
+   // 6. Вывод текущего лосса (для красоты)
+   "loss" [LOAD] [PRINT]
+[RET]
+
+[PROGRAM_END]
+
+```
 ---
 
 ## 🗺 Roadmap
