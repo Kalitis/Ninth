@@ -1,6 +1,6 @@
 # Ninth: The Native Language of Neuro-Symbolic AI
 
-![Version](https://img.shields.io/badge/version-v0.5.1-blue.svg)
+![Version](https://img.shields.io/badge/version-v0.6.0-blue.svg)
 ![License](https://img.shields.io/badge/license-MIT-green.svg)
 ![Status](https://img.shields.io/badge/status-experimental-orange.svg)
 
