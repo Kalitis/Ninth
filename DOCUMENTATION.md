@@ -1,9 +1,6 @@
----
-
 ### 2. Файл `DOCUMENTATION.md`
 Техническая спецификация для тех, кто хочет писать код.
 
-```markdown
 # Ninth Language Specification (v0.5.1)
 
 ## 1. Core Concept
@@ -72,4 +69,5 @@ The fundamental data type is **torch.Tensor**. Even scalars (like `1.0`) are 0-d
 [RET]
 
 10 5 [CALL] "squared_diff" 
+
 // Result: 25
