@@ -1,6 +1,6 @@
 # Ninth: The Native Language of Neuro-Symbolic AI
 
-![Version](https://img.shields.io/badge/version-v0.5.1-blue.svg)
+![Version](https://img.shields.io/badge/version-v0.6.0-blue.svg)
 ![License](https://img.shields.io/badge/license-MIT-green.svg)
 ![Status](https://img.shields.io/badge/status-experimental-orange.svg)
 
@@ -10,19 +10,33 @@ Unlike traditional tool use (JSON/Python), Ninth allows Large Language Models to
 
 > **"The model doesn't see the code execution, it only sees the result. It's like a Ghost in the Machine."**
 
----
+## 📁 Project Structure
 
-## 🚀 Key Features
+```
+ninth/
+├── src/                 # Source code
+│   ├── core/            # Core VM implementation
+│   ├── operations/      # Stack and math operations
+│   ├── memory/          # Memory management
+│   ├── control/         # Control flow operations
+│   ├── generators/      # Tensor generation operations
+│   └── autograd/        # Autograd-related operations
+├── tests/              # Test suite
+│   ├── unit/           # Unit tests
+│   ├── integration/    # Integration tests
+│   └── e2e/            # End-to-end tests
+├── docs/               # Documentation
+│   ├── api/            # API reference and language spec
+│   ├── examples/       # Example programs
+│   └── tutorials/      # Tutorial guides
+├── examples/           # Example programs
+├── config/             # Configuration files
+└── requirements.txt    # Python dependencies
+```
 
-*   **Differentiable by Design**: Every operation supports Autograd. You can run `[BACKWARD]` through the entire execution stack.
-*   **Tensor-First**: The only data type is `torch.Tensor`. Scalars, vectors, and matrices are first-class citizens.
-*   **Token Efficient**: No boilerplate. `[MATMUL]` is 1 token. Loop logic is minimal. Ideal for limited context windows.
-*   **Turing Complete**: Supports Functions (`[DEF]`), Loops (`[REPEAT]`), and Branching (`[IF]`).
-*   **Smart Shapes (v0.5.1)**: Supports dynamic tensor creation like `[2 4] [RANDN]`.
+## 🚀 Quick Start
 
----
-
-## 📦 Installation
+### Installation
 
 Ninth is extremely lightweight. You only need `torch`.
 
@@ -30,20 +44,22 @@ Ninth is extremely lightweight. You only need `torch`.
 pip install torch numpy matplotlib
 ```
 
-Clone the repo and run the interpreter:
+### Running
 
 ```bash
-git clone https://github.com/your-username/ninth.git
-cd ninth
-python ninth.py
+cd src/core
+python vm.py
 ```
 
----
+## 📖 Documentation
 
-## ⚡ Quick Start
+- [Main Documentation](docs/README.md) - Overview and getting started
+- [Language Specification](docs/api/language_spec.md) - Technical details
+- [Examples](docs/examples/) - Example programs and use cases
+- [Tutorials](docs/tutorials/) - Step-by-step guides
 
-### 1. Basic Math
-Ninth uses RPN (Reverse Polish Notation).
+## ⚡ Quick Example
+
 ```forth
 [PROGRAM_START]
 3 4 [ADD]     // Stack: 7
@@ -52,124 +68,6 @@ Ninth uses RPN (Reverse Polish Notation).
 [PROGRAM_END]
 ```
 
-### 2. Autograd & Optimization
-Ninth can calculate gradients and update variables. Here is how to find $\sqrt{16}$ using gradient descent:
-
-```forth
-[PROGRAM_START]
-// Init x = 1.0 with gradients
-1.0 [VAR] "x" [STORE]
-
-// Training Loop (50 steps)
-50 [REPEAT]
-  "x" [LOAD] [DUP] [MUL]  // x^2
-  16.0 [SUB] [DUP] [MUL]  // Loss = (x^2 - 16)^2
-  
-  [BACKWARD]              // Compute Gradients
-  
-  // SGD Step: x = x - 0.01 * grad
-  "x" [LOAD] "x" [GRAD] 0.01 [MUL] [SUB] 
-  [VAR] "x" [STORE]       // Update x
-[END]
-
-"Result:" [PRINT]
-"x" [LOAD] [PEEK]         // Should be close to 4.0
-[PROGRAM_END]
-```
-
----
-
-## 🧠 LLM Integration (System Prompt)
-
-To make your LLM (GPT-4, Llama-3, Claude) use Ninth, inject this into the system prompt:
-
-```text
-You have access to a differentiable stack machine called "Ninth". 
-To perform calculations, simulate logic, or optimize parameters, output code in a block:
-[PROGRAM_START] ... code ... [PROGRAM_END]
-
-Syntax:
-- RPN: "3 4 [ADD]" -> 7
-- Tensors: "[2 4] [RANDN]" -> 2x4 Matrix
-- Variables: "val [VAR] 'name' [STORE]" and "'name' [LOAD]"
-- Logic: "[IF] ... [ELSE] ... [ENDIF]"
-- Loops: "N [REPEAT] ... [END]"
-- Autograd: "[BACKWARD]" to compute gradients.
-```
-
----
-
-## 📊 Neural Network Example
-
-Ninth v0.5.1 is powerful enough to define and train a neural network from scratch in ~20 lines of code.
-
-
-```forth
-[PROGRAM_START]
-
-// --- INIT ---
-// W1: [784, 128]
-[784 128] [RANDN] 0.01 [MUL] [VAR] "W1" [STORE]
-[1 128] [ZEROS] [VAR] "b1" [STORE]
-
-// W2: [128, 10]
-[128 10] [RANDN] 0.01 [MUL] [VAR] "W2" [STORE]
-[1 10] [ZEROS] [VAR] "b2" [STORE]
-
-// Learning Rate
-0.05 "lr" [STORE]
-
-// --- FORWARD PASS ---
-[DEF] "model"
-   "W1" [LOAD] [MATMUL] "b1" [LOAD] [ADD] [RELU]
-   "W2" [LOAD] [MATMUL] "b2" [LOAD] [ADD]
-   // Возвращаем логиты (без Softmax, т.к. CrossEntropy сам его сделает внутри)
-[RET]
-
-// --- TRAIN STEP ---
-[DEF] "train_batch"
-   // 1. Забираем данные из очереди (Python положил их туда)
-   [INPUT] "X" [STORE]
-   [INPUT] "Y" [STORE]
-
-   // 2. Предсказание
-   "X" [LOAD] [CALL] "model" // -> Logits
-
-   // 3. Считаем Loss
-   [DUP] // Копируем логиты (одни для лосса, другие для проверки точности)
-   "Y" [LOAD] [CROSS_ENTROPY]
-   "loss" [STORE]
-
-   // 4. Backprop
-   "loss" [LOAD] [BACKWARD]
-
-   // 5. Update (SGD)
-   "W1" [LOAD] "W1" [GRAD] "lr" [LOAD] [MUL] [SUB] [VAR] "W1" [STORE]
-   "b1" [LOAD] "b1" [GRAD] "lr" [LOAD] [MUL] [SUB] [VAR] "b1" [STORE]
-   "W2" [LOAD] "W2" [GRAD] "lr" [LOAD] [MUL] [SUB] [VAR] "W2" [STORE]
-   "b2" [LOAD] "b2" [GRAD] "lr" [LOAD] [MUL] [SUB] [VAR] "b2" [STORE]
-   
-   // 6. Вывод текущего лосса (для красоты)
-   "loss" [LOAD] [PRINT]
-[RET]
-
-[PROGRAM_END]
-
-```
----
-
-## 🗺 Roadmap
-
-- [x] **v0.1**: Basic Stack & Math
-- [x] **v0.3**: Loops & Control Flow
-- [x] **v0.5**: Smart Shapes & Stability
-- [ ] **v0.6**: File I/O & Tensor Reshape Support
-- [ ] **v0.7**: Standard Library
-- [ ] **v1.0**: End-to-End LLM Fine-tuning Integration
-
 ## 📄 License
 
 MIT License. Free to use for research and revolution.
-
-## README IS AI GENERATED BY GEMINI 3.0 PRO
-```
