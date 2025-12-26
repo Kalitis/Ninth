@@ -5,7 +5,7 @@ import sys
 from tokenizers import Tokenizer, models, pre_tokenizers, normalizers, Regex
 from fone import FoNE
 
-# === Ninth VM v0.6.1: The Chimera (HF Tokenizers Edition) ===
+# === Ninth VM v0.6.2: The Chimera (HF Tokenizers Edition) ===
 
 class ModuleDef:
     def __init__(self, name):
@@ -82,6 +82,7 @@ class NinthVM:
         # Ортогонализация помогает различать команды, но и рандом сойдет.
         # Делаем requires_grad=False, это наша "ПЗУ" (ROM)
         self.op_bank = nn.Parameter(torch.randn(num_ops, embedding_dim))
+        nn.init.orthogonal_(self.op_bank) 
         
         # Нормализуем банк векторов, чтобы Cosine Similarity работал корректно
         with torch.no_grad():
@@ -515,32 +516,25 @@ class NinthVM:
 if __name__ == "__main__":
     vm = NinthVM(embedding_dim=128)
     
-    print("=== 1. Setup Stack ===")
+    # ... (код стека тот же) ...
     vm.stack.append(torch.tensor(10.0))
     vm.stack.append(torch.tensor(10.0))
     vm.stack.append(torch.tensor(20.0))
-    print(f"Stack: {vm.stack}") # [10, 20]
-    
-    print("\n=== 2. Clean Execution (Classic) ===")
-    # Берем чистый вектор команды [ADD]
-    clean_vec = vm.get_op_vector("[ADD]") 
-    vm.execute_vector_step(clean_vec) 
-    print(f"Result: {vm.stack[-1]}") # Должно быть 30
-    
-    print("\n=== 3. Fuzzy Execution (Neural) ===")
-    # Допустим, LLM "подумала" команду [MUL], но добавила кучу шума (сомнений)
-    # Или произошел битфлип, или квантование.
-    
+
     target_vec = vm.get_op_vector("[MUL]")
-    noise = torch.randn_like(target_vec) * 0.1 # 50% амплитуды сигнала - это ОЧЕНЬ много шума
+    
+    # Увеличим ставки. 80% шума.
+    # noise_level = 0.8 означает, что вектор шума почти такой же сильный, как сигнал.
+    noise_level = 1.0
+    noise = torch.randn_like(target_vec) * noise_level
+    
+    # Нормализуем шум, чтобы он честно был длиной 0.8 от длины сигнала
+    noise = noise / torch.norm(noise) * noise_level * torch.norm(target_vec)
+    
     noisy_vec = target_vec + noise
     
-    print("Injecting heavy noise into [MUL] vector...")
-    vm.execute_vector_step(noisy_vec) # VM должна "догадаться", что это MUL
+    print(f"Injecting MASSIVE noise ({int(noise_level*100)}%)...")
+    vm.execute_vector_step(noisy_vec) 
     
-    print(f"Result: {vm.stack[-1]}") # 30 * 30 (т.к. [ADD] выше сделал 30, а [MUL] требует 2 аргумента... стоп)
-    # Поправим стек для чистоты теста
-    vm.stack = [torch.tensor(5.0), torch.tensor(4.0)]
-    print(f"New Stack: {vm.stack}")
-    vm.execute_vector_step(noisy_vec) # 5 * 4
-    print(f"Result: {vm.stack[-1]}") # Должно быть 20
+    # Если вы увидите "[MUL]" с конфиденсом > 0.5, значит мы победили физику.
+    print(f"Result: {vm.stack[-1]}")
