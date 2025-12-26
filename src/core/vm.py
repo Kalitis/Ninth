@@ -1,7 +1,9 @@
 import torch
+import torch.nn as nn
 import re
 import sys
 from tokenizers import Tokenizer, models, pre_tokenizers, normalizers, Regex
+from fone import FoNE
 
 # === Ninth VM v0.6.1: The Chimera (HF Tokenizers Edition) ===
 
@@ -20,7 +22,7 @@ class ModuleInstance:
         return f"<Instance: {self.definition.name}>"
 
 class NinthVM:
-    def __init__(self):
+    def __init__(self, embedding_dim=128):
         self.stack = []
         self.scopes = [{}]      # Local scopes (Data Plane)
         self.modules = {}       # Class definitions
@@ -28,6 +30,16 @@ class NinthVM:
         
         # --- Tokenizer Setup ---
         self.tokenizer = self._build_tokenizer()
+        self.embedding_dim = embedding_dim
+        
+        # 1. Числовой энкодер (FoNE)
+        # scales=64 дает 128 фичей на входе MLP, проецируем в 768
+        self.fone = FoNE(dim=embedding_dim, scales=64)
+        
+        # 2. Эмбеддинги Опкодов (обучаемые!)
+        # Пока просто инициализируем, чтобы показать структуру
+        # В будущем self.op_embeddings будет заменять self.ops словарем
+        self.op_embeddings = nn.Parameter(torch.randn(100, embedding_dim)) 
 
         # System Ops
         self.ops = {
@@ -64,6 +76,55 @@ class NinthVM:
             "[RESHAPE]": self._op_reshape,   # Изменение формы по списку
         }
 
+        self.op_names = list(self.ops.keys())
+        num_ops = len(self.op_names)
+        
+        # Ортогонализация помогает различать команды, но и рандом сойдет.
+        # Делаем requires_grad=False, это наша "ПЗУ" (ROM)
+        self.op_bank = nn.Parameter(torch.randn(num_ops, embedding_dim))
+        
+        # Нормализуем банк векторов, чтобы Cosine Similarity работал корректно
+        with torch.no_grad():
+            self.op_bank.div_(torch.norm(self.op_bank, dim=1, keepdim=True))
+
+
+    def execute_vector_step(self, input_vector):
+        """
+        Самая магия.
+        input_vector: [1, 128] - "Мысль", пришедшая от нейросети.
+        Она может не совпадать ни с одним опкодом на 100%.
+        """
+        # 1. Нормализуем вход
+        input_vector = input_vector / input_vector.norm(dim=-1, keepdim=True)
+        
+        # 2. Вычисляем сходство со всеми известными командами
+        # (Softmax Attention Mechanism)
+        # [1, 128] @ [128, num_ops] -> [1, num_ops]
+        scores = input_vector @ self.op_bank.T
+        
+        # 3. Hard Attention (Argmax) - выбираем победителя
+        # В будущем здесь будет Soft Execution (смесь функций), но пока выбираем одну.
+        best_idx = torch.argmax(scores).item()
+        confidence = scores[0, best_idx].item()
+        
+        op_name = self.op_names[best_idx]
+        
+        # 4. Порог уверенности (Safety)
+        if confidence < 0.4:
+            print(f"<?> Unclear Intent (conf={confidence:.2f}). Skipping.")
+            return
+            
+        print(f"🤖 Brain: I feel vector is '{op_name}' (conf={confidence:.2f})")
+        
+        # 5. Исполнение
+        self.ops[op_name]()
+
+    # --- Helpers ---
+    def get_op_vector(self, op_name):
+        # Хелпер, чтобы достать "идеальный" вектор для теста
+        idx = self.op_names.index(op_name)
+        return self.op_bank[idx].unsqueeze(0) # [1, dim]
+    
     # --- Tokenizer Construction ---
     def _build_tokenizer(self):
         # Мы используем WordLevel модель, так как VM оперирует цельными токенами.
@@ -90,6 +151,38 @@ class NinthVM:
         
         return tokenizer
 
+    def vectorize_program(self, code):
+        """
+        Превращает текстовый код в последовательность векторов.
+        Это то, что будет видеть нейросеть-контроллер или трансформер.
+        """
+        tokens = self._tokenize(code) if isinstance(code, str) else code
+        vectors = []
+        
+        for t in tokens:
+            if self._is_number(t):
+                # Если это число -> прогоняем через FoNE
+                # Результат: [1, 768]
+                vec = self.fone(float(t)) 
+                vectors.append(vec)
+            
+            elif t in self.ops:
+                # Если это опкод -> берем его (пока случайный) эмбеддинг
+                # В реальности здесь нужен lookup по ID токена
+                # Для демо сгенерируем детерминированный "псевдо-эмбеддинг" из хэша
+                seed = sum(ord(c) for c in t)
+                torch.manual_seed(seed)
+                vec = torch.randn(1, self.embedding_dim) 
+                vectors.append(vec)
+            
+            else:
+                # Переменные и прочее -> пока заглушка (Zero Vector или Learned)
+                vectors.append(torch.zeros(1, self.embedding_dim))
+        
+        if vectors:
+            return torch.cat(vectors, dim=0) # [Seq_Len, 768]
+        return torch.tensor([])
+    
     def _tokenize(self, text):
         # 1. Удаляем комментарии (старый добрый Python re здесь быстрее и надежнее)
         text = re.sub(r"//.*", "", text)
@@ -363,6 +456,37 @@ class NinthVM:
             i += 1
         return i - 1
 
+    def vectorize_program(self, code):
+        """
+        Превращает текстовый код в последовательность векторов.
+        Это то, что будет видеть нейросеть-контроллер или трансформер.
+        """
+        tokens = self._tokenize(code) if isinstance(code, str) else code
+        vectors = []
+        
+        for t in tokens:
+            if self._is_number(t):
+                # Если это число -> прогоняем через FoNE
+                # Результат: [1, 768]
+                vec = self.fone(float(t)) 
+                vectors.append(vec)
+            
+            elif t in self.ops:
+                # Если это опкод -> берем его (пока случайный) эмбеддинг
+                # В реальности здесь нужен lookup по ID токена
+                # Для демо сгенерируем детерминированный "псевдо-эмбеддинг" из хэша
+                seed = sum(ord(c) for c in t)
+                torch.manual_seed(seed)
+                vec = torch.randn(1, self.embedding_dim) 
+                vectors.append(vec)
+            
+            else:
+                # Переменные и прочее -> пока заглушка (Zero Vector или Learned)
+                vectors.append(torch.zeros(1, self.embedding_dim))
+        
+        if vectors:
+            return torch.cat(vectors, dim=0) # [Seq_Len, 768]
+        return torch.tensor([])
     # Helpers
     def _is_number(self, s):
         try: float(s); return True
@@ -389,96 +513,34 @@ class NinthVM:
 
 # === RUNTIME DEMO ===
 if __name__ == "__main__":
-    vm = NinthVM()
-    print("=== Ninth v0.7.0 Chimera: HF Tokenizers Edition ===\n")
-
-    main_script = """
-    // === 1. Базовый Линейный Слой ===
-    "Linear" [MODULE]
-        [INIT]
-            -> out_dim -> in_dim
-            [in_dim out_dim] -> @W
-            [1 out_dim] -> @b 
-        [RET]
-
-        [FORWARD]
-            -> x
-            x @W [MATMUL] @b [ADD]
-        [RET]
-    [END_MODULE]
-
-    // === 2. Композитный Модуль (DeepNet) ===
-    "DeepNet" [MODULE]
-        [INIT]
-            -> out -> hidden -> in
-            in hidden {Linear} -> @layer1
-            hidden out {Linear} -> @layer2
-        [RET]
-
-        [FORWARD]
-            -> x
-            x @layer1 [CALL] ->> h_raw
-            h_raw @layer2 [CALL]
-        [RET]
-    [END_MODULE]
-
-    // === 3. Оптимизатор SGD ===
-    "SGD" [MODULE]
-        [INIT]
-            -> lr -> target_model
-            target_model -> @model
-            lr -> @lr
-        [RET]
-
-        [FORWARD]
-            [NO_GRAD]
-                @model [PARAMS] 
-                { 
-                    -> p
-                    p [GRAD] -> g
-                    p @lr g [SUB_ASSIGN_GRAD]
-                } [FOREACH]
-            [END_NO_GRAD]
-        [RET]
-    [END_MODULE]
-
-    // === 4. Скрипт Обучения ===
-    "--- Start Training ---" [PRINT]
-
-    // Создаем "Глубокую" сеть: 10 входов -> 5 скрытых -> 1 выход
-    10 5 1 {DeepNet} -> @net
-
-    // Создаем оптимизатор, скорость 0.05
-    @net 0.005 {SGD} -> @opt
-
-    // Данные (Batch size 1, Features 10)
-    (1.0 0.5 0.5 1.0 0.0 0.0 1.0 0.5 0.5 1.0) -> input
-    (0.0) -> target
-
-    // --- ШАГ 1 ---
-    "Step 1:" [PRINT]
-    input @net [CALL] ->> pred1
-    pred1 [PEEK]
-
-    pred1[SQUEEZE] target[SQUEEZE] [MSE_LOSS] ->> loss1
-    "Loss 1:" [PRINT] loss1 [PEEK]
-
-    loss1 [BACKWARD]
-    @opt [CALL]
-    @net [ZERO_GRAD]
-
-    // --- ШАГ 2 ---
-    "Step 2:" [PRINT]
-    input @net [CALL] ->> pred2
+    vm = NinthVM(embedding_dim=128)
     
-    pred2[SQUEEZE] target[SQUEEZE] [MSE_LOSS] ->> loss2
-    "Loss 2:" [PRINT] loss2 [PEEK]
-
-    loss2 [BACKWARD]
-    @opt [CALL]
-    @net [ZERO_GRAD]
+    print("=== 1. Setup Stack ===")
+    vm.stack.append(torch.tensor(10.0))
+    vm.stack.append(torch.tensor(10.0))
+    vm.stack.append(torch.tensor(20.0))
+    print(f"Stack: {vm.stack}") # [10, 20]
     
-    "--- Done ---" [PRINT]
-    """
+    print("\n=== 2. Clean Execution (Classic) ===")
+    # Берем чистый вектор команды [ADD]
+    clean_vec = vm.get_op_vector("[ADD]") 
+    vm.execute_vector_step(clean_vec) 
+    print(f"Result: {vm.stack[-1]}") # Должно быть 30
     
-    vm.execute(main_script)
+    print("\n=== 3. Fuzzy Execution (Neural) ===")
+    # Допустим, LLM "подумала" команду [MUL], но добавила кучу шума (сомнений)
+    # Или произошел битфлип, или квантование.
+    
+    target_vec = vm.get_op_vector("[MUL]")
+    noise = torch.randn_like(target_vec) * 0.1 # 50% амплитуды сигнала - это ОЧЕНЬ много шума
+    noisy_vec = target_vec + noise
+    
+    print("Injecting heavy noise into [MUL] vector...")
+    vm.execute_vector_step(noisy_vec) # VM должна "догадаться", что это MUL
+    
+    print(f"Result: {vm.stack[-1]}") # 30 * 30 (т.к. [ADD] выше сделал 30, а [MUL] требует 2 аргумента... стоп)
+    # Поправим стек для чистоты теста
+    vm.stack = [torch.tensor(5.0), torch.tensor(4.0)]
+    print(f"New Stack: {vm.stack}")
+    vm.execute_vector_step(noisy_vec) # 5 * 4
+    print(f"Result: {vm.stack[-1]}") # Должно быть 20
