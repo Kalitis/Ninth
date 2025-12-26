@@ -1,6 +1,6 @@
 # Ninth: The Native Language of Neuro-Symbolic AI
 
-![Version](https://img.shields.io/badge/version-v0.6.0-blue.svg)
+![Version](https://img.shields.io/badge/version-v0.6.2-blue.svg)
 ![License](https://img.shields.io/badge/license-MIT-green.svg)
 ![Status](https://img.shields.io/badge/status-experimental-orange.svg)
 
@@ -10,7 +10,7 @@ Unlike traditional languages where AI calls external tools (Python/JSON), Ninth 
 
 > **"The code is not just instructions; it is topology. The variables are not just values; they are weights."**
 
-## 🌟 Key Features (v0.6.0 "Chimera")
+## 🌟 Key Features (v0.6.2 "Chimera")
 
 * **Everything is a Tensor:** From scalars to strings, every element on the stack is a PyTorch tensor.
 * **Stateful Modules:** A class-based system (`[MODULE]`, `[INIT]`, `[FORWARD]`) similar to `torch.nn.Module`, but fully inspectable and modifiable at runtime.
